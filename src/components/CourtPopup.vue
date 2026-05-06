@@ -95,16 +95,18 @@ const regionLabel = computed(() => REGION_LABELS[props.court.region] || props.co
 
 const bookingUrl = computed(() => BOOKING_URLS[props.court.region] || '#')
 
-// Use geo: URI for mobile native map picker, falls back to Google Maps on desktop
+// Use the City's Google Maps address for accurate directions, fall back to display address
 const directionsUrl = computed(() => {
-  const { lat, lng, name, address } = props.court
+  const { name, address, directionAddress } = props.court
+  const dest = directionAddress || address
+  const destQuery = encodeURIComponent(dest + ', Calgary, AB')
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   if (isMobile) {
     // geo: URI lets the OS pick the map app
-    return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(name)})`
+    return `geo:0,0?q=${destQuery}`
   }
   // Desktop: open Google Maps directions
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address + ', Calgary, AB')}`
+  return `https://www.google.com/maps/dir/?api=1&destination=${destQuery}`
 })
 
 const headerStyle = computed(() => {
