@@ -1,5 +1,20 @@
 <template>
-  <aside class="sidebar">
+  <aside
+    class="sidebar"
+    :class="{ 'sheet-dragging': isDragging }"
+    :style="sheetStyle"
+    ref="sidebarRef"
+  >
+    <!-- Mobile drag handle -->
+    <div
+      class="sheet-handle"
+      @touchstart.passive="onDragStart"
+      @touchmove.passive="onDragMove"
+      @touchend="onDragEnd"
+      @click="onHandleTap"
+    >
+      <div class="sheet-handle-bar"></div>
+    </div>
     <!-- Header -->
     <div class="sidebar-header">
       <div class="logo-row">
@@ -47,6 +62,7 @@
           placeholder="Search courts or addresses…"
           :value="searchQuery"
           @input="$emit('update:searchQuery', $event.target.value)"
+          @focus="onSearchFocus"
         />
         <button v-if="searchQuery" class="search-clear" @click="$emit('update:searchQuery', '')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -108,7 +124,7 @@
           :key="court.id"
           class="court-card"
           :class="{ 'court-card--bookable': court.bookable }"
-          @click="$emit('select-court', court)"
+          @click="onCourtClick(court)"
         >
           <div class="court-card-header">
             <div class="court-card-dot" :style="{ background: regionColor(court.region) }"></div>
@@ -168,7 +184,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { REGION_COLORS } from '../data/courts.js'
 
 const props = defineProps({
@@ -181,6 +197,87 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:selectedRegion', 'update:searchQuery', 'update:typeFilters', 'select-court', 'toggle-theme'])
+
+// ── Mobile bottom sheet logic ──
+const sidebarRef = ref(null)
+const isMobile = ref(false)
+const isDragging = ref(false)
+const sheetHeight = ref(140) // collapsed peek height
+const dragStartY = ref(0)
+const dragStartHeight = ref(0)
+
+const SNAP_PEEK = 140
+const SNAP_HALF = () => window.innerHeight * 0.5
+const SNAP_FULL = () => window.innerHeight * 0.9
+
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768
+  if (!isMobile.value) sheetHeight.value = 0 // reset; CSS handles desktop
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
+
+const sheetStyle = computed(() => {
+  if (!isMobile.value) return {}
+  return { height: sheetHeight.value + 'px' }
+})
+
+function onDragStart(e) {
+  if (!isMobile.value) return
+  isDragging.value = true
+  dragStartY.value = e.touches[0].clientY
+  dragStartHeight.value = sheetHeight.value
+}
+
+function onDragMove(e) {
+  if (!isDragging.value || !isMobile.value) return
+  const dy = dragStartY.value - e.touches[0].clientY
+  const newH = Math.min(Math.max(dragStartHeight.value + dy, 80), window.innerHeight * 0.92)
+  sheetHeight.value = newH
+}
+
+function onDragEnd() {
+  if (!isDragging.value) return
+  isDragging.value = false
+  snapToNearest()
+}
+
+function snapToNearest() {
+  const h = sheetHeight.value
+  const snaps = [SNAP_PEEK, SNAP_HALF(), SNAP_FULL()]
+  let closest = snaps[0]
+  let minDist = Math.abs(h - snaps[0])
+  for (const s of snaps) {
+    const d = Math.abs(h - s)
+    if (d < minDist) { minDist = d; closest = s }
+  }
+  sheetHeight.value = closest
+}
+
+function onHandleTap() {
+  if (!isMobile.value) return
+  // Toggle between peek and half
+  sheetHeight.value = sheetHeight.value <= SNAP_PEEK + 20 ? SNAP_HALF() : SNAP_PEEK
+}
+
+function onSearchFocus() {
+  if (isMobile.value) {
+    sheetHeight.value = SNAP_HALF()
+  }
+}
+
+function onCourtClick(court) {
+  emit('select-court', court)
+  if (isMobile.value) {
+    sheetHeight.value = SNAP_PEEK
+  }
+}
 
 function toggleType(type) {
   const isBoth = props.typeFilters.length === 2
@@ -270,6 +367,15 @@ function regionColor(region) {
   flex-direction: column;
   z-index: 500;
   transition: background var(--transition-normal), border-color var(--transition-normal);
+}
+
+.sidebar:not(.sheet-dragging) {
+  transition: background var(--transition-normal), border-color var(--transition-normal), height 0.3s cubic-bezier(.2,.9,.3,1);
+}
+
+/* Mobile drag handle – hidden on desktop */
+.sheet-handle {
+  display: none;
 }
 
 /* Header */
@@ -669,14 +775,54 @@ function regionColor(region) {
     position: fixed;
     width: 100%;
     min-width: unset;
-    height: 45vh;
     bottom: 0;
     left: 0;
     right: 0;
     border-right: none;
-    border-top: 1px solid var(--border-subtle);
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-top: none;
+    border-radius: 16px 16px 0 0;
     z-index: 600;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.25);
+    overflow: hidden;
+  }
+
+  .sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0 4px;
+    cursor: grab;
+    touch-action: none;
+    flex-shrink: 0;
+  }
+
+  .sheet-handle-bar {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--text-muted, #6b7280);
+    opacity: 0.4;
+  }
+
+  .sidebar-header {
+    padding: 8px 16px 10px;
+  }
+
+  .sidebar-search {
+    padding: 6px 16px;
+  }
+
+  .region-filters {
+    padding: 0 16px 6px;
+  }
+
+  .type-filters {
+    padding: 0 16px 8px;
+  }
+
+  .court-list {
+    flex: 1;
+    min-height: 0;
   }
 }
 </style>
